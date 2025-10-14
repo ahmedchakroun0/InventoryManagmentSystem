@@ -1,0 +1,22 @@
+{
+  "timesteps_grid": 20000,
+  "timesteps_final": 200000,
+  "n_envs": 4,
+  "n_eval": 5,
+  "max_combinations": 0,
+  "out_csv": "pipeline_grid_results.csv",
+  "out_model": "pipeline_best_model",
+  "out_eval": "pipeline_eval.json",
+  "out_image": "pipeline_comparison.png",
+  "econ_grid": {
+    "holding_costs": [0.5, 1.5, 3.0],
+    "order_fixed": [5.0, 20.0, 50.0],
+    "stockout_penalties": [10.0, 50.0, 200.0]
+  },
+  "learning_rate_list": [3e-5, 3e-5, 1e-4],
+  "n_steps_list": [512, 2048, 1024],
+  "n_epochs_list": [5, 5, 8],
+  "vf_coef_list": [0.25, 0.25, 0.25],
+  "ent_coef_list": [0.0, 0.0, 0.01],
+  "batch_size": 64
+}
