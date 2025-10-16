@@ -173,6 +173,12 @@ def run_cartesian_grid(args):
 
     import json
     best_cfg = {k: best_row[k] for k in param_fields}
+    # Add gamma and metrics to the best config JSON
+    best_cfg['gamma'] = args.gamma
+    best_cfg['rl_avg_profit'] = best_row['rl_avg_profit']
+    best_cfg['rl_avg_stockouts'] = best_row['rl_avg_stockouts']
+    best_cfg['rl_avg_inventory'] = best_row['rl_avg_inventory']
+    
     best_json = args.out_csv.replace('.csv', '_cartesian_best_config.json')
     with open(best_json, 'w') as f:
         json.dump(best_cfg, f, indent=2)

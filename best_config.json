@@ -1,0 +1,16 @@
+{
+  "holding_cost": 0.5,
+  "order_fixed": 5.0,
+  "stockout_penalty": 10.0,
+  "learning_rate": 3e-05,
+  "n_steps": 1024,
+  "n_epochs": 8,
+  "vf_coef": 0.25,
+  "ent_coef": 0.01,
+  "batch_size": 64,
+  "gamma": 0.995,
+  "rl_avg_profit": 305.92201985315944,
+  "rl_avg_stockouts": 95.14652752333134,
+  "rl_avg_inventory": 19.738785418027067,
+  "train_time_s": 105.44201445579529
+}
