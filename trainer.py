@@ -136,6 +136,10 @@ class Trainer:
         save_path = self.save_path if save_path is None else save_path
         start = time.time()
 
+        # Prepare storage for periodic evaluation metrics collected during training
+        # Each entry will be a dict: {'timesteps': int, 'eval_mean_reward': float}
+        self.training_eval_history = []
+
         if early_stop:
             trained = 0
             best_score = -float('inf')
@@ -160,6 +164,8 @@ class Trainer:
                 ))
                 rl = evaluate_policy(self.model, eval_env, num_episodes=eval_episodes, use_trained=True)
                 score = float(np.mean(rl['rewards']))
+                # record periodic eval score
+                self.training_eval_history.append({'timesteps': trained, 'eval_mean_reward': score})
                 print(f"[early-stop] trained={trained}/{timesteps} eval_avg_reward={score:.2f} best={best_score:.2f}")
 
                 if score > best_score + min_delta:
@@ -176,8 +182,51 @@ class Trainer:
 
             train_time = time.time() - start
         else:
-            self.model.learn(total_timesteps=timesteps)
-            train_time = time.time() - start
+            # If eval_freq is set, train in chunks and collect evals periodically to build a stable curve
+            if eval_freq and eval_freq > 0 and eval_freq < timesteps:
+                trained = 0
+                chunk = min(eval_freq, timesteps)
+                while trained < timesteps:
+                    to_train = min(chunk, timesteps - trained)
+                    self.model.learn(total_timesteps=to_train)
+                    trained += to_train
+
+                    # run a small evaluation to get stable checkpoint reward
+                    eval_env = Monitor(InventoryEnv(
+                        num_products=3,
+                        order_up_to=True,
+                        discrete_actions=False,
+                        holding_cost_per_unit=self.holding_cost_per_unit,
+                        order_cost_fixed=self.order_cost_fixed,
+                        order_cost_per_unit=1.0,
+                        stockout_penalty=self.stockout_penalty,
+                        reward_scale=self.reward_scale
+                    ))
+                    rl = evaluate_policy(self.model, eval_env, num_episodes=eval_episodes, use_trained=True)
+                    score = float(np.mean(rl['rewards']))
+                    self.training_eval_history.append({'timesteps': trained, 'eval_mean_reward': score})
+                    print(f"[train] trained={trained}/{timesteps} eval_avg_reward={score:.2f}")
+
+                train_time = time.time() - start
+            else:
+                # single bulk learn and one evaluation at the end
+                self.model.learn(total_timesteps=timesteps)
+                # single evaluation
+                eval_env = Monitor(InventoryEnv(
+                    num_products=3,
+                    order_up_to=True,
+                    discrete_actions=False,
+                    holding_cost_per_unit=self.holding_cost_per_unit,
+                    order_cost_fixed=self.order_cost_fixed,
+                    order_cost_per_unit=1.0,
+                    stockout_penalty=self.stockout_penalty,
+                    reward_scale=self.reward_scale
+                ))
+                rl = evaluate_policy(self.model, eval_env, num_episodes=eval_episodes, use_trained=True)
+                score = float(np.mean(rl['rewards']))
+                self.training_eval_history.append({'timesteps': timesteps, 'eval_mean_reward': score})
+                print(f"[train] trained={timesteps}/{timesteps} eval_avg_reward={score:.2f}")
+                train_time = time.time() - start
 
         return train_time
 

@@ -59,23 +59,26 @@ def retrain_best_and_evaluate(best: Dict[str, Any], timesteps_final: int, n_envs
     train_time = trainer.train(timesteps_final)
     trainer.save(out_model_path)
     
-    # Extract training rewards from the model's episode info buffer
+    # Use periodic evaluation history collected by Trainer (more stable checkpoints)
+    training_timesteps = []
     training_rewards = []
-    if hasattr(trainer.model, 'ep_info_buffer') and len(trainer.model.ep_info_buffer) > 0:
-        training_rewards = [ep_info['r'] for ep_info in trainer.model.ep_info_buffer]
-    
-    print(f"Collected {len(training_rewards)} episode rewards from training")
+    if hasattr(trainer, 'training_eval_history') and trainer.training_eval_history:
+        training_timesteps = [int(x['timesteps']) for x in trainer.training_eval_history]
+        training_rewards = [float(x['eval_mean_reward']) for x in trainer.training_eval_history]
+
+    print(f"Collected {len(training_rewards)} periodic eval checkpoints from training")
 
     tester = Tester(holding_cost_per_unit=hc, order_cost_fixed=of, stockout_penalty=sp)
     rl_results = tester.test_trained(model=trainer.model, episodes=n_eval)
-    random_results = tester.test_random(episodes=n_eval)
-    fixed_results = tester.test_fixed_order(target=30.0, episodes=n_eval)
 
-    # Save evaluation JSON
+    # Train and evaluate a simple RL baseline (A2C) for a fair comparison
+    print(f"Training simple RL baseline (A2C) for {timesteps_final} timesteps...")
+    simple_rl_results = tester.test_simple_rl(algo='A2C', timesteps=timesteps_final, episodes=n_eval)
+
+    # Save evaluation JSON (compare PPO vs simple RL baseline)
     all_results = {
-        'Trained RL Policy': rl_results['per_episode'],
-        'Random Policy': random_results['per_episode'],
-        'Fixed Order (30 units)': fixed_results['per_episode']
+        'Trained PPO Policy': rl_results['per_episode'],
+        'Simple RL Baseline (A2C)': simple_rl_results['per_episode']
     }
 
     import json
@@ -84,10 +87,29 @@ def retrain_best_and_evaluate(best: Dict[str, Any], timesteps_final: int, n_envs
 
     print(f"Saved evaluation comparisons to {out_eval_json}")
 
-    # Visualization with training rewards
+    # Visualization: include both PPO and baseline training series (smoothed) for comparison
     vis = visulisor()
+    # Build training series dict for visualizer
+    training_series = {}
     if len(training_rewards) > 0:
-        vis.set_training_rewards(training_rewards)
+        training_series['PPO (trained)'] = {
+            'timesteps': training_timesteps,
+            'rewards': training_rewards
+        }
+
+    # baseline training history (if available)
+    baseline_history = simple_rl_results.get('training_eval_history', []) if isinstance(simple_rl_results, dict) else []
+    if baseline_history:
+        baseline_timesteps = [int(x['timesteps']) for x in baseline_history]
+        baseline_rewards = [float(x['eval_mean_reward']) for x in baseline_history]
+        training_series['A2C (baseline)'] = {
+            'timesteps': baseline_timesteps,
+            'rewards': baseline_rewards
+        }
+
+    if training_series:
+        vis.training_series = training_series
+
     vis.set_policy_comparison(all_results)
     vis.compare_and_plot(out_path=out_image, show=False)
     print(f"Saved pipeline comparison figure to {out_image}")

@@ -1,6 +1,6 @@
 {
   "timesteps_grid": 200000,
-  "timesteps_final": 10000000,
+  "timesteps_final": 800000,
   "n_envs": 4,
   "n_eval": 5,
   "max_combinations": 0,

@@ -31,6 +31,10 @@ class visulisor:
     def __init__(self, training_rewards: Optional[list] = None, policy_comparison: Optional[Dict[str, Dict]] = None):
         self.training_rewards = [] if training_rewards is None else list(training_rewards)
         self.policy_comparison = {} if policy_comparison is None else dict(policy_comparison)
+        # optional timesteps corresponding to training_rewards; filled by pipeline when available
+        self.training_timesteps = None
+        # optional dict of multiple training series: {label: {'timesteps': [...], 'rewards': [...]}}
+        self.training_series = {}
 
     @staticmethod
     def load_policy_comparison_from_json(path: str) -> Dict[str, Dict[str, list]]:
@@ -77,13 +81,72 @@ class visulisor:
             fig, axes = plt.subplots(1, 2, figsize=(15, 5))
             axes = list(axes) + [None, None]
 
-        # Plot 1: Training progress
-        if len(self.training_rewards) > 0 and axes[0] is not None:
-            axes[0].plot(self.training_rewards, linewidth=2, color='blue', alpha=0.85)
-            axes[0].set_xlabel('Training Checkpoints', fontsize=12)
-            axes[0].set_ylabel('Mean Episode Reward ($)', fontsize=12)
-            axes[0].set_title('Training Progress: Reward Over Time', fontsize=14, fontweight='bold')
-            axes[0].grid(True, alpha=0.3)
+        # Plot 1: Training progress (support multiple series)
+        if (len(self.training_rewards) > 0 or len(self.training_series) > 0) and axes[0] is not None:
+            # choose colors for up to N series
+            base_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+
+            plotted_any = False
+            # If pipeline provided multiple series explicitly, plot them
+            if self.training_series:
+                all_vals = []
+                for i, (label, series) in enumerate(self.training_series.items()):
+                    rewards = list(series.get('rewards', []))
+                    timesteps = list(series.get('timesteps', []))
+                    if not rewards:
+                        continue
+                    x = timesteps if timesteps else list(range(1, len(rewards) + 1))
+                    # smoothing
+                    window = max(1, int(len(rewards) * 0.1))
+                    color = base_colors[i % len(base_colors)]
+                    if window > 1 and len(rewards) >= window:
+                        kernel = np.ones(window) / window
+                        smooth = np.convolve(rewards, kernel, mode='valid')
+                        xs = x[window - 1:]
+                        axes[0].plot(xs, smooth, linewidth=2.5, color=color, alpha=0.95, label=label, zorder=3)
+                        # add markers every few points to make lines distinguishable
+                        step = max(1, len(xs) // 10)
+                        axes[0].plot(xs[::step], smooth[::step], marker='o', linestyle='None', color=color, alpha=0.9, zorder=4)
+                        all_vals.extend(smooth.tolist())
+                    else:
+                        axes[0].plot(x, rewards, linewidth=1.8, color=color, alpha=0.9, label=label, zorder=3)
+                        axes[0].plot(x[::max(1, len(x)//10)], np.array(rewards)[::max(1, len(x)//10)], marker='o', linestyle='None', color=color, alpha=0.9, zorder=4)
+                        all_vals.extend(rewards)
+                    plotted_any = True
+
+                # expand y-limits slightly to ensure lines aren't clipped or invisible
+                if all_vals:
+                    vmin = min(all_vals)
+                    vmax = max(all_vals)
+                    if vmax - vmin > 1e-6:
+                        margin = 0.05 * (vmax - vmin)
+                        axes[0].set_ylim(vmin - margin, vmax + margin)
+
+            # Backward-compatible: if single training_rewards provided, plot it as 'Training'
+            elif len(self.training_rewards) > 0:
+                x = None
+                if hasattr(self, 'training_timesteps') and self.training_timesteps:
+                    x = self.training_timesteps
+                else:
+                    x = list(range(1, len(self.training_rewards) + 1))
+                rewards = self.training_rewards
+                window = max(1, int(len(rewards) * 0.1))
+                color = base_colors[0]
+                if window > 1 and len(rewards) >= window:
+                    kernel = np.ones(window) / window
+                    smooth = np.convolve(rewards, kernel, mode='valid')
+                    xs = x[window - 1:]
+                    axes[0].plot(xs, smooth, linewidth=2.0, color=color, alpha=0.95, label='Training')
+                else:
+                    axes[0].plot(x, rewards, linewidth=1.5, color=color, alpha=0.9, label='Training')
+                plotted_any = True
+
+            if plotted_any:
+                axes[0].set_xlabel('Training Timesteps' if hasattr(self, 'training_timesteps') and self.training_timesteps else 'Training Checkpoints', fontsize=12)
+                axes[0].set_ylabel('Mean Episode Reward ($)', fontsize=12)
+                axes[0].set_title('Training Progress: Reward Over Time', fontsize=14, fontweight='bold')
+                axes[0].grid(True, alpha=0.3)
+                axes[0].legend()
         else:
             if axes[0] is not None:
                 axes[0].text(0.5, 0.5, 'Training rewards not provided', ha='center', va='center', fontsize=12)

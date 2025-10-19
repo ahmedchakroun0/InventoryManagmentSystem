@@ -12,6 +12,7 @@ from typing import Optional, Dict, Any
 import json
 import numpy as np
 from stable_baselines3 import PPO
+from stable_baselines3 import A2C
 from stable_baselines3.common.monitor import Monitor
 from InventoryEnv import InventoryEnv
 from utils import evaluate_policy
@@ -79,6 +80,58 @@ class Tester:
         results = evaluate_policy(None, eval_env, num_episodes=episodes, use_trained=False)
         aggregated = {k: float(np.mean(v)) for k, v in results.items()}
         return {'per_episode': results, 'aggregated': aggregated}
+
+    def test_simple_rl(self, algo: str = 'A2C', timesteps: int = 200_000, episodes: int = 100, policy_kwargs: Optional[dict] = None, eval_freq: Optional[int] = None, eval_episodes: int = 5) -> Dict[str, Any]:
+        """Train a simple RL baseline (A2C by default) and evaluate it.
+
+        This trains the chosen algorithm for `timesteps` using the same environment
+        economics and then evaluates it for `episodes` episodes. Returns the same
+        result structure as `test_trained`.
+        """
+        policy_kwargs = {} if policy_kwargs is None else policy_kwargs
+
+        # Create training env (order_up_to semantics)
+        train_env = InventoryEnv(
+            num_products=self.num_products,
+            order_up_to=True,
+            discrete_actions=False,
+            holding_cost_per_unit=self.holding_cost_per_unit,
+            order_cost_fixed=self.order_cost_fixed,
+            order_cost_per_unit=1.0,
+            stockout_penalty=self.stockout_penalty,
+            reward_scale=self.reward_scale
+        )
+        train_env = Monitor(train_env)
+
+        if algo.upper() == 'A2C':
+            model = A2C('MlpPolicy', train_env, verbose=0, **policy_kwargs)
+        else:
+            raise ValueError(f"Unsupported baseline algorithm: {algo}")
+
+        # Decide evaluation frequency
+        if eval_freq is None:
+            eval_freq = max(1, timesteps // 20)
+
+        # Training with periodic evaluation to collect a stable learning curve
+        training_eval_history = []
+        trained = 0
+        chunk = min(eval_freq, timesteps)
+        while trained < timesteps:
+            to_train = min(chunk, timesteps - trained)
+            model.learn(total_timesteps=to_train)
+            trained += to_train
+
+            # small evaluation
+            eval_env = self._make_eval_env()
+            res = evaluate_policy(model, eval_env, num_episodes=eval_episodes, use_trained=True)
+            mean_reward = float(np.mean(res['rewards']))
+            training_eval_history.append({'timesteps': trained, 'eval_mean_reward': mean_reward})
+
+        # Final evaluation for comparison
+        eval_env = self._make_eval_env()
+        results = evaluate_policy(model, eval_env, num_episodes=episodes, use_trained=True)
+        aggregated = {k: float(np.mean(v)) for k, v in results.items()}
+        return {'per_episode': results, 'aggregated': aggregated, 'training_eval_history': training_eval_history}
 
     def test_fixed_order(self, target: float = 30.0, episodes: int = 100) -> Dict[str, Any]:
         """Evaluate a simple fixed policy: always order up to `target` units per product.
